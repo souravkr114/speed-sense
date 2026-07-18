@@ -64,6 +64,8 @@ let trail = []; // Array of {x, y, speed}
 let speedHistory = []; // Historical speeds for graph
 let currentSpeed = 0;
 let maxSpeed = 0;
+let displayedSpeed = 0;
+let lastUIUpdateTime = 0;
 
 // Interaction modes: "none", "calibrating", "selecting_box"
 let interactionState = "none";
@@ -834,9 +836,14 @@ function estimateSpeed(cx, cy) {
     lastTrackedPos = { x: cx, y: cy };
     lastTrackedTime = tNow;
 
-    // Update UI numbers
-    valSpeed.textContent = currentSpeed.toFixed(1);
-    valMaxSpeed.textContent = maxSpeed.toFixed(1);
+    // Update UI numbers at a human-readable rate (every 250ms)
+    const now = Date.now();
+    if (now - lastUIUpdateTime > 250) {
+        displayedSpeed = currentSpeed;
+        valSpeed.textContent = displayedSpeed.toFixed(1);
+        valMaxSpeed.textContent = maxSpeed.toFixed(1);
+        lastUIUpdateTime = now;
+    }
     
     // Draw telemetry
     drawTelemetryGraph();
@@ -863,9 +870,10 @@ function changeSpeedUnit() {
 
     currentSpeed *= factor;
     maxSpeed *= factor;
+    displayedSpeed *= factor;
     speedHistory = speedHistory.map(s => s * factor);
     
-    valSpeed.textContent = currentSpeed.toFixed(1);
+    valSpeed.textContent = displayedSpeed.toFixed(1);
     valMaxSpeed.textContent = maxSpeed.toFixed(1);
     drawTelemetryGraph();
 }
@@ -914,6 +922,8 @@ function resetTrackingStats() {
     speedHistory = [];
     currentSpeed = 0;
     maxSpeed = 0;
+    displayedSpeed = 0;
+    lastUIUpdateTime = 0;
     lastTrackedPos = null;
 
     valSpeed.textContent = "0.0";
@@ -1117,7 +1127,7 @@ function drawTrackingOverlays() {
         ctx.fill();
 
         // Speed Text HUD Tag
-        const speedText = `${currentSpeed.toFixed(1)} ${speedUnit.value}`;
+        const speedText = `${displayedSpeed.toFixed(1)} ${speedUnit.value}`;
         ctx.font = 'bold 13px Orbitron';
         const txtW = ctx.measureText(speedText).width;
 
