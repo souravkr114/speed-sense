@@ -134,6 +134,11 @@ function setupEventListeners() {
     window.addEventListener('mouseup', onMouseUp);
     videoCanvas.addEventListener('dblclick', onDoubleClick);
 
+    // Touch support for mobile devices
+    videoCanvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    videoCanvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    videoCanvas.addEventListener('touchend', onTouchEnd, { passive: false });
+
     // Video Events
     sourceVideo.addEventListener('loadedmetadata', onVideoLoaded);
     sourceVideo.addEventListener('timeupdate', updateTimeline);
@@ -1182,4 +1187,129 @@ function formatTime(seconds) {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+// ================= MOBILE TOUCH HANDLING =================
+
+let lastTapTime = 0;
+
+function onTouchStart(e) {
+    if (sourceVideo.readyState < 2) return;
+    
+    // Check for double tap
+    const now = Date.now();
+    const doubleTapDelay = 300;
+    const touch = e.touches[0];
+    const rect = videoCanvas.getBoundingClientRect();
+    const cx = (touch.clientX - rect.left) * (videoCanvas.width / rect.width);
+    const cy = (touch.clientY - rect.top) * (videoCanvas.height / rect.height);
+    
+    if (now - lastTapTime < doubleTapDelay) {
+        // Double tap!
+        e.preventDefault(); // Stop default browser zoom/pause gestures
+        if (isPlaying) togglePlayPause();
+        
+        btnCalib.textContent = "📏 Draw Calibration Line";
+        btnCalib.style.backgroundColor = "";
+
+        if (trackingMode === "Color") {
+            const color = samplePixelColor(cx, cy);
+            lockOnColor(color, cx, cy);
+        } else {
+            interactionState = "selecting_box";
+            videoCanvas.style.cursor = "crosshair";
+            const selectBtn = document.getElementById('btnReset').previousElementSibling;
+            selectBtn.textContent = "🎯 Drag box on video...";
+            selectBtn.style.backgroundColor = "#d97706";
+        }
+        dragStart = null;
+    } else {
+        // Single tap start (could be start of drag/calibration/box selection)
+        dragStart = { x: cx, y: cy };
+        
+        if (interactionState === "calibrating") {
+            e.preventDefault();
+            calibStartReal = { x: cx, y: cy };
+            calibEndReal = null;
+        } else if (interactionState === "selecting_box") {
+            e.preventDefault();
+            trackedBox = { x: cx, y: cy, w: 0, h: 0 };
+        }
+    }
+    lastTapTime = now;
+}
+
+function onTouchMove(e) {
+    if (!dragStart || sourceVideo.readyState < 2) return;
+    
+    const touch = e.touches[0];
+    const rect = videoCanvas.getBoundingClientRect();
+    const cx = (touch.clientX - rect.left) * (videoCanvas.width / rect.width);
+    const cy = (touch.clientY - rect.top) * (videoCanvas.height / rect.height);
+    
+    currentDrag = { x: cx, y: cy };
+    
+    if (interactionState === "calibrating" || interactionState === "selecting_box") {
+        e.preventDefault(); // Disable touch scrolling only during active draw actions
+        drawFrame();
+        
+        if (interactionState === "calibrating") {
+            ctx.beginPath();
+            ctx.moveTo(dragStart.x, dragStart.y);
+            ctx.lineTo(cx, cy);
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else if (interactionState === "selecting_box") {
+            ctx.strokeStyle = '#34d399';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(dragStart.x, dragStart.y, cx - dragStart.x, cy - dragStart.y);
+        }
+    }
+}
+
+function onTouchEnd(e) {
+    if (!dragStart || sourceVideo.readyState < 2) return;
+    
+    const touch = e.changedTouches[0];
+    const rect = videoCanvas.getBoundingClientRect();
+    const cx = (touch.clientX - rect.left) * (videoCanvas.width / rect.width);
+    const cy = (touch.clientY - rect.top) * (videoCanvas.height / rect.height);
+    
+    if (interactionState === "calibrating") {
+        e.preventDefault();
+        calibEndReal = { x: cx, y: cy };
+        updateCalibrationRatio();
+        
+        interactionState = "none";
+        videoCanvas.style.cursor = "";
+        btnCalib.textContent = "📏 Draw Calibration Line";
+        btnCalib.style.backgroundColor = "";
+        drawFrame();
+    } else if (interactionState === "selecting_box") {
+        e.preventDefault();
+        const x_min = Math.min(dragStart.x, cx);
+        const y_min = Math.min(dragStart.y, cy);
+        const w = Math.abs(dragStart.x - cx);
+        const h = Math.abs(dragStart.y - cy);
+
+        if (w > 5 && h > 5) {
+            trackedBox = { x: x_min, y: y_min, w: w, h: h };
+            initializeTemplateBoxTracker();
+        } else {
+            trackedBox = null;
+        }
+
+        interactionState = "none";
+        videoCanvas.style.cursor = "";
+        const selectBtn = document.getElementById('btnReset').previousElementSibling;
+        selectBtn.textContent = "🎯 Box Track Active";
+        selectBtn.style.backgroundColor = "#10b981"; // Green
+        drawFrame();
+    }
+    
+    dragStart = null;
+    currentDrag = null;
 }
